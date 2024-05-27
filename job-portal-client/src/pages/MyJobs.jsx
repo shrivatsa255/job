@@ -1,18 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import PdfModal from '../components/PdfModal';
 import { Link } from 'react-router-dom';
+import axios from 'axios'
+import Swal from 'sweetalert2';
 
 const MyJobs = () => {
   const [jobs, setJobs] = useState([]);
   const [resumes, setResumes] = useState([]);
+  const [resumesUrl, setResumesUrl] = useState();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null); 
+   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 4;
 
+  const closeModal = () => {
+    setModalIsOpen(false);
+  };
+  const email = localStorage.getItem('userEmail')
   useEffect(() => {
     setIsLoading(true);
     setError(null); 
-    fetch(`http://localhost:3000/myJobs/hi@gmail.com`)
+    fetch(`http://localhost:3000/myJobs/${email}`)
       .then(res => {
         if (!res.ok) {
           return res.json().then(err => {
@@ -33,24 +42,40 @@ const MyJobs = () => {
   }, []);
 
   useEffect(() => {
-    // Fetch resumes data from the database
     fetchResumes();
-  }, []);
+  }, [jobs]);
+const fetchResumes = async () => {
+  try {
+    const allResumeData = []; // Array to store data of all resumes // Array to store URLs of all resumes
 
-  const fetchResumes = async () => {
-    try {
-      const response = await fetch('http://localhost:3000/store-resume-pdf');
-      if (!response.ok) {
-        throw new Error('Failed to fetch resumes');
-      }
-      const data = await response.json();
-      setResumes(data);
-    } catch (error) {
-      console.error('Error fetching resumes:', error);
-      setError('Failed to fetch resumes');
-    }
-  };
+    await Promise.all(jobs.map(async (job) => {
+      const response = await axios.get(`http://localhost:3000/resumes/${job._id}`);
+      console.log(job._id);
+      const Resumes = response.data;
+      console.log(Resumes)
+      // Extract URLs from each object in the response data array
+      Resumes.forEach((resume) => {
+        if (resume) { // Assuming 'url' is the key for URL in each resume object
+          allResumeData.push(resume); 
+          console.log(allResumeData)
+        }
+         setResumes(allResumeData)
+      });
+    }));
+    
+   
+  
+    // console.log('allResumeUrls', allResumeUrls);
 
+    // console.log('allResumeData', allResumeData);
+    // Set the resumes state with all resume data
+ // Set the resumeUrls state with all resume URLs
+  } catch (error) {
+    console.error('Error fetching resumes:', error);
+    setError('Failed to fetch resumes');
+  }
+};
+console.log(typeof resumes)
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentJobs = jobs.slice(indexOfFirstItem, indexOfLastItem);
@@ -60,13 +85,25 @@ const MyJobs = () => {
       setCurrentPage(currentPage + 1);
     }
   };
-
+  const handleDelete = async(id) =>{
+    const res = await axios.delete(`http://localhost:3000/job/${id}`)
+    Swal.fire({
+      title:"Job Deleted",
+      icon:'Success'
+    })
+    window.location.reload()
+    }
+    
+  
   const prevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
     }
   };
-
+  const handleView = (url) =>{
+    setResumesUrl(url)
+    setModalIsOpen(true)
+  }
   return (
     <div className="max-w-screen-2xl container mx-auto xl:px-24 px-4">
       <div className="my-jobs-container ">
@@ -162,16 +199,24 @@ const MyJobs = () => {
                     <th className="px-6 bg-blueGray-50 text-blueGray-500 align-middle border border-solid border-blueGray-100 py-3 text-xs uppercase border-l-0 border-r-0 whitespace-nowrap font-semibold text-left">
                       Resume Name
                     </th>
-                    {/* Add more table headers if needed */}
+                    <th className="px-6 bg-blueGray-50 text-blueGray-500 align-middle border border-solid border-blueGray-100 py-3 text-xs uppercase border-l-0 border-r-0 whitespace-nowrap font-semibold text-left">
+                      View
+                    </th>
+                   
                   </tr>
                 </thead>
 
                 <tbody>
-                  {resumes.map((resume, index) => (
+                  {resumes.map((resume,index) => (
                     <tr key={index}>
                       <td className="border-t-0 px-6 align-middle border-l-0 border-r-0 text-xs whitespace-nowrap p-4 text-left text-blueGray-700">{index + 1}</td>
-                      <td className="border-t-0 px-6 align-middle border-l-0 border-r-0 text-xs whitespace-nowrap p-4">{resume.name}</td>
-                      {/* Add more table cells for resume details if needed */}
+                      <td className="border-t-0 px-6 align-middle border-l-0 border-r-0 text-xs whitespace-nowrap p-4">{resume.fileName}</td>
+                        <td className="border-t-0 px-6 align-middle border-l-0 border-r-0 text-xs whitespace-nowrap p-4">
+                          <button onClick={() => handleView(resume.url)} className='bg-emerald-400 px-5 py-2'>View</button>
+                        </td>
+                        {modalIsOpen && (
+                          <PdfModal pdfUrl={resumesUrl} isOpen={modalIsOpen} closeModal={closeModal}/>
+                        ) }
                     </tr>
                   ))}
                 </tbody>

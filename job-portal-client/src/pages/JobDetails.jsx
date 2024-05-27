@@ -1,6 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Swal from "sweetalert2";
+import PdfModal from "../components/PdfModal";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import axios from 'axios';
+import { initializeApp } from 'firebase/app';
+import { firebaseConfig } from "../../../job-portal-server/firebaseConfig";
+
+
+const app = initializeApp(firebaseConfig);
+const storage = getStorage(app);
+
+
 
 const JobDetails = () => {
   const { id } = useParams();
@@ -8,7 +19,17 @@ const JobDetails = () => {
   const [skills, setSkills] = useState([]);
   const [resume, setResume] = useState(null);
   const [resumeUrl, setResumeUrl] = useState(null);
+  const [modalIsOpen, setModalIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true)
+   
 
+
+  const closeModal = () => {
+    setModalIsOpen(false);
+  };
+
+  const email = localStorage.getItem('userEmail')
+  console.log(email)
   useEffect(() => {
     fetch(`http://localhost:3000/all-jobs/${id}`)
       .then((res) => {
@@ -41,29 +62,39 @@ const JobDetails = () => {
   };
 
   const submitApplication = async (file) => {
-    const formData = new FormData();
-    formData.append('resume', file);
+   if (file) {
+      const storageRef = ref(storage, file.name);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
-    try {
-      const response = await fetch('http://localhost:3000/store-resume-pdf', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const { success, filePath } = data;
-        if (success) {
-          Swal.fire("Success", "Resume uploaded successfully", "success");
-          setResumeUrl(filePath);
-        } else {
-          throw new Error("Failed to upload resume");
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          // Handle progress
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          console.log('Upload is ' + progress + '% done');
+        },
+        (error) => {
+          // Handle unsuccessful upload
+          console.error('Error uploading file:', error);
+        },
+        async () => {
+          // Handle successful upload
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            console.log(downloadUrl)
+            // Save downloadUrl to MongoDB using API
+            try {
+              await axios.post('http://localhost:3000/store-resume-pdf', {jobId:id ,userEmail:email, fileName:file.name, url: downloadUrl });
+              console.log('URL saved to MongoDB');
+              Swal.fire("SuccessFully Uploaded", 'success')
+            } catch (error) {
+              Swal.fire("Failed to upload", 'error')
+              console.error('Error saving URL to MongoDB:', error);
+            }
+          } catch (error) {
+            console.error('Error getting download URL:', error);
+          }
         }
-      } else {
-        throw new Error("Failed to upload resume");
-      }
-    } catch (error) {
-      Swal.fire("Error", "Failed to upload resume", "error");
+      );
     }
   };
 
@@ -74,11 +105,21 @@ const JobDetails = () => {
       setSkills(skillList);
     }
   };
+const handleView = async() => {
+    try {
+      const response = await axios.get(`http://localhost:3000/get-resume-url/${email}/${id}`)
+      setResumeUrl(response.data.url)
+      console.log(response.data.url)
+      setIsLoading(false)
+      setModalIsOpen(true)
+    } catch (error) {
+      console.error('Error fetching resume:', error);
+    }
+};
 
   useEffect(() => {
     getSkills();
   }, [job]);
-
   return (
     <div className='max-w-screen xl:px-24 px-4'>
       <img src={job?.companyLogo} width={120} height={120} alt="Company Logo" />
@@ -90,12 +131,12 @@ const JobDetails = () => {
           onClick={handleApply}>
           Apply Now
         </button>
-        {resumeUrl && (
-          <a href={resumeUrl} target="_blank" rel="noopener noreferrer" className="bg-green-500 px-8 py-2 text-white">
-            View Resume
-          </a>
-        )}
+        
+          <button className="px-8 text-white font-bold bg-emerald-400" onClick={handleView}>View</button>
       </div>
+      {modalIsOpen && (
+        <PdfModal pdfUrl={resumeUrl} isOpen={modalIsOpen} closeModal={closeModal} />
+      )}
       {job ? (
         <div className="flex flex-row gap-3">
           <div className='flex flex-col gap-3 basis-1/2'>
